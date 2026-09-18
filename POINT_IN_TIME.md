@@ -12,6 +12,11 @@ This collector stores predictor data for forecasting. A historical backtest must
 
 `availability_basis` is one of `official_timestamp`, `official_date`, `archived_release`, `first_seen`, `inferred`, `unknown`.
 
+Page change-history timestamps describe the page, not necessarily the values in
+the current mutable attachment. A current-file backfill is therefore recorded
+as `first_seen` unless an archived edition or observation-level release record
+proves the earlier information set.
+
 By default `get_series_as_of()` accepts only `official_timestamp`, `official_date`, `archived_release`, and `first_seen`. `inferred` and `unknown` require explicit opt-in.
 
 ## Historical revisions

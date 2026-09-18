@@ -17,7 +17,7 @@ from typing import Any
 
 from sqlalchemy.engine import Engine
 
-from scripts.availability import attribute_release, upsert_availability
+from scripts.availability import upsert_availability
 from scripts.config import LOG_LEVEL, missing_environment, unresolved_credentials
 from scripts.db import build_engine
 from scripts.extract import collect
@@ -70,19 +70,9 @@ def _availability_rows(data: Any, result: WriteResult, collected_at: datetime) -
     }
     rows: list[dict[str, Any]] = []
     for series_id, reference_date, vintage_date in result.written_keys:
-        key = (series_id, reference_date, vintage_date)
-        if key in result.revised_keys:
-            available_at, basis, release_date = collected_at, "first_seen", None
-        else:
-            available_at, basis, release_date = attribute_release(
-                reference_date,
-                data.releases,
-                data.min_lag_days,
-                data.max_lag_days,
-                data.inferred_lag_days,
-            )
-            if basis not in {"official_timestamp", "official_date", "archived_release"} and series_id in result.preexisting_series:
-                available_at, basis, release_date = collected_at, "first_seen", None
+        # A current mutable file does not prove the value in an old release.
+        # Record the witnessed version; page-history reconstruction is separate.
+        available_at, basis, release_date = collected_at, "first_seen", None
         rows.append(
             {
                 "series_id": series_id,

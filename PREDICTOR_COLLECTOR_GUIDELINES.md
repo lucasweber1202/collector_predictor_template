@@ -62,6 +62,11 @@ One success/error row per execution, including traceback on failure.
 
 Allowed availability bases: `official_timestamp`, `official_date`, `archived_release`, `first_seen`, `inferred`, `unknown`.
 
+A timestamp from a web-page change history does not establish when each value
+inside today's mutable attachment became available. Historical backfills from
+such files must use `first_seen`; only archived editions or observation-level
+release evidence may support an earlier PIT timestamp.
+
 `get_series_as_of()` excludes `inferred` and `unknown` by default.
 
 Historical revisions must never inherit the original release timestamp. If no explicit revision release timestamp is available, a newly discovered historical revision uses `available_at=collected_at`, `availability_basis=first_seen`, `release_date=NULL`.
