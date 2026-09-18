@@ -26,9 +26,9 @@ RUN_AT = datetime(2026, 3, 1, 12, 0, tzinfo=UTC)
 def test_earliest_release_after_the_period_is_chosen() -> None:
     """Attribution takes the first qualifying release, not the last."""
     available_at, basis, release_date = attribute_release(date(2026, 2, 2), RELEASES, 1, 31, 1)
-    assert basis == "official_timestamp"
+    assert basis == "inferred"
     assert available_at == RELEASES[0]
-    assert release_date == date(2026, 2, 3)
+    assert release_date is None
 
 
 def test_a_missing_release_falls_forward_rather_than_backward() -> None:
@@ -39,7 +39,7 @@ def test_a_missing_release_falls_forward_rather_than_backward() -> None:
     is the safe direction.
     """
     available_at, basis, _ = attribute_release(date(2026, 2, 16), RELEASES, 1, 31, 1)
-    assert basis == "official_timestamp"
+    assert basis == "inferred"
     assert available_at == RELEASES[2]
     assert available_at.date() > date(2026, 2, 16)
 
@@ -48,7 +48,7 @@ def test_min_lag_zero_lets_a_release_carry_its_own_reference_day() -> None:
     """DEFRA publishes a reference day on that same day; DESNZ never does."""
     same_day = [datetime(2026, 2, 2, 8, 30, tzinfo=UTC)]
     _, defra_basis, _ = attribute_release(date(2026, 2, 2), same_day, 0, 31, 3)
-    assert defra_basis == "official_timestamp"
+    assert defra_basis == "inferred"
     _, desnz_basis, _ = attribute_release(date(2026, 2, 2), same_day, 1, 31, 1)
     assert desnz_basis == "inferred"
 

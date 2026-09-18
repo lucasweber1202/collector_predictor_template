@@ -12,7 +12,7 @@ weakest evidence:
 
 ``official_timestamp``
     The source stamped a machine-readable publication timestamp that this
-    observation can be attributed to. GOV.UK change-history entries are this.
+    observation can be attributed to. Page-history dates alone do not qualify.
 ``official_date``
     The source published a release date, but only to day precision.
 ``archived_release``
@@ -84,25 +84,11 @@ def attribute_release(
     max_lag_days: int,
     inferred_lag_days: int | None,
 ) -> tuple[datetime, str, date | None]:
-    """Attribute one reference period to the earliest release that published it.
+    """Estimate a release from page history, never certify a historical value.
 
-    Every GOV.UK change-history entry after a reference period describes a page
-    state that contained that period, so the earliest such entry is the earliest
-    instant this observation can be *proven* available. When the source's own
-    history is sparse, that proof lands on a later release than the true one:
-    the recorded availability is then late rather than early, which understates
-    the information set instead of leaking a look-ahead.
-
-    ``min_lag_days`` is the smallest lag the source's schedule permits, because
-    sources differ in whether a release can carry its own reference day.
-    ``max_lag_days`` bounds attribution so a reference period from before the
-    change history began is not attached to the first surviving entry years
-    later. Beyond that bound the source's observed release rule yields an
-    ``inferred`` instant, and a source with no such rule yields ``unknown``.
-
-    ``unknown`` still needs a sortable `available_at`, and the only defensible
-    choice is the far future: an observation whose availability cannot be
-    established must never satisfy an as-of filter by default.
+    A page update is evidence about the page, not the contents of an earlier
+    edition of today's mutable attachment. Even an exact timestamp therefore
+    yields inferred availability and no observation-level release_date.
     """
     if reference_date > datetime.now(UTC).date():
         raise ValueError(f"Reference date {reference_date} is in the future")
@@ -111,7 +97,7 @@ def attribute_release(
     for release in releases:
         release_day = release.astimezone(UTC).date()
         if window_start <= release_day <= window_end:
-            return release, OFFICIAL_TIMESTAMP, release_day
+            return release, INFERRED, None
     if inferred_lag_days is None:
         return datetime.max.replace(tzinfo=UTC), UNKNOWN, None
     # Midday UTC, not midnight: the inferred instant is a reconstruction of a
@@ -230,6 +216,8 @@ _AS_OF_SQL = text(
          AND av.vintage_date = ts.vintage_date
         WHERE ts.series_id = :series_id
           AND av.available_at <= :as_of
+          AND (av.availability_basis != 'official_timestamp'
+               OR ts.collected_at <= :as_of)
           AND av.availability_basis IN :bases
     ) ranked
     WHERE rn = 1

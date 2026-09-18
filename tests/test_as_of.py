@@ -24,7 +24,7 @@ def _store(
     reference_date: date,
     value: float,
     available_at: datetime,
-    basis: str = "official_timestamp",
+    basis: str = "archived_release",
     collected_at: datetime = RUN_AT,
 ) -> None:
     """Write one observation and its availability row exactly as the pipeline does."""
