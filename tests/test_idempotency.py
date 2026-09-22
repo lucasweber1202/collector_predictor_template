@@ -1,9 +1,9 @@
 """Fleet invariants: idempotency and PIT-safe revisions."""
+
 from __future__ import annotations
 
 from datetime import UTC, date, datetime
 
-import pytest
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
@@ -14,8 +14,10 @@ SERIES = "TEST_PREDICTOR_SERIES"
 DAY_ONE = datetime(2026, 3, 2, 9, 0, tzinfo=UTC)
 DAY_TWO = datetime(2026, 3, 3, 9, 0, tzinfo=UTC)
 
+
 def _obs(value: float) -> list[Observation]:
     return [Observation(SERIES, date(2026, 2, 23), value, "snap")]
+
 
 def test_identical_rerun_is_noop(engine: Engine) -> None:
     with engine.begin() as conn:
@@ -26,6 +28,7 @@ def test_identical_rerun_is_noop(engine: Engine) -> None:
     assert (second.new_observations, second.new_vintages) == (0, 0)
     assert second.written_keys == []
 
+
 def test_later_day_revision_adds_vintage(engine: Engine) -> None:
     with engine.begin() as conn:
         upsert_time_series(conn, _obs(150.0), DAY_ONE)
@@ -34,14 +37,73 @@ def test_later_day_revision_adds_vintage(engine: Engine) -> None:
     assert revision.new_vintages == 1
     assert len(revision.revised_keys) == 1
     with engine.connect() as conn:
-        rows = conn.execute(text(f"SELECT vintage_date, value FROM {SCHEMA_NAME}.{TIME_SERIES_TABLE} ORDER BY vintage_date")).all()
+        rows = conn.execute(
+            text(
+                f"SELECT vintage_date, value FROM {SCHEMA_NAME}.{TIME_SERIES_TABLE} ORDER BY vintage_date"
+            )
+        ).all()
     assert rows == [(date(2026, 3, 2), 150.0), (date(2026, 3, 3), 151.5)]
 
-def test_same_day_revision_fails_closed(engine: Engine) -> None:
+
+def test_same_day_revision_updates_in_place(engine: Engine) -> None:
+    """A second revision on the same calendar day overwrites today's row.
+
+    The key is (series_id, reference_date, vintage_date) and vintage_date is a
+    DATE, so two same-day revisions cannot be two rows. The latest collection
+    of the day wins (GUIDELINES.md 3).
+    """
     with engine.begin() as conn:
         upsert_time_series(conn, _obs(150.0), DAY_ONE)
-    with pytest.raises(RuntimeError, match="same-day revision"), engine.begin() as conn:
-        upsert_time_series(conn, _obs(150.4), DAY_ONE.replace(hour=17))
+    with engine.begin() as conn:
+        revision = upsert_time_series(conn, _obs(150.4), DAY_ONE.replace(hour=17))
+    assert revision.same_day_updates == 1
+    assert revision.new_vintages == 0
+    assert revision.new_observations == 0
     with engine.connect() as conn:
-        value = conn.execute(text(f"SELECT value FROM {SCHEMA_NAME}.{TIME_SERIES_TABLE}")).scalar_one()
-    assert value == 150.0
+        rows = conn.execute(
+            text(f"SELECT vintage_date, value, collected_at FROM {SCHEMA_NAME}.{TIME_SERIES_TABLE}")
+        ).all()
+    assert len(rows) == 1, "a same-day revision must not create a second row"
+    assert rows[0][0] == date(2026, 3, 2)
+    assert rows[0][1] == 150.4
+    assert str(rows[0][2]).startswith("2026-03-02 17:00"), "collected_at must advance"
+
+
+def test_second_same_day_revision_keeps_one_row(engine: Engine) -> None:
+    with engine.begin() as conn:
+        upsert_time_series(conn, _obs(150.0), DAY_ONE)
+    for hour, value in ((13, 150.4), (17, 150.9)):
+        with engine.begin() as conn:
+            upsert_time_series(conn, _obs(value), DAY_ONE.replace(hour=hour))
+    with engine.connect() as conn:
+        rows = conn.execute(text(f"SELECT value FROM {SCHEMA_NAME}.{TIME_SERIES_TABLE}")).all()
+    assert rows == [(150.9,)]
+
+
+def test_same_day_update_then_later_day_revision(engine: Engine) -> None:
+    """After an in-place same-day update, the next day still opens a vintage."""
+    with engine.begin() as conn:
+        upsert_time_series(conn, _obs(150.0), DAY_ONE)
+    with engine.begin() as conn:
+        upsert_time_series(conn, _obs(150.4), DAY_ONE.replace(hour=17))
+    with engine.begin() as conn:
+        later = upsert_time_series(conn, _obs(151.5), DAY_TWO)
+    assert later.new_vintages == 1
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text(
+                f"SELECT vintage_date, value FROM {SCHEMA_NAME}.{TIME_SERIES_TABLE} "
+                "ORDER BY vintage_date"
+            )
+        ).all()
+    assert rows == [(date(2026, 3, 2), 150.4), (date(2026, 3, 3), 151.5)]
+
+
+def test_rerun_after_same_day_update_is_noop(engine: Engine) -> None:
+    with engine.begin() as conn:
+        upsert_time_series(conn, _obs(150.0), DAY_ONE)
+    with engine.begin() as conn:
+        upsert_time_series(conn, _obs(150.4), DAY_ONE.replace(hour=17))
+    with engine.begin() as conn:
+        again = upsert_time_series(conn, _obs(150.4), DAY_ONE.replace(hour=18))
+    assert (again.new_observations, again.new_vintages, again.same_day_updates) == (0, 0, 0)
