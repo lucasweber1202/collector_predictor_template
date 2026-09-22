@@ -43,3 +43,6 @@ warn_unused_ignores = false
 line-length = 100
 target-version = "py311"
 extend-exclude = ["*.md"]
+
+[tool.ruff.lint.per-file-ignores]
+"scripts/databricks_engine.py" = ["S110", "BLE001"]

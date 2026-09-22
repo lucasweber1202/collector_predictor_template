@@ -1,4 +1,5 @@
 """Regression test for the historical-revision look-ahead bug."""
+
 from __future__ import annotations
 
 from datetime import UTC, date, datetime
@@ -16,6 +17,7 @@ FIRST_COLLECTED = datetime(2026, 1, 6, 9, 0, tzinfo=UTC)
 REVISION_COLLECTED = datetime(2026, 3, 10, 15, 0, tzinfo=UTC)
 ORIGINAL_RELEASE = datetime(2026, 1, 6, 8, 30, tzinfo=UTC)
 
+
 def _data(value: float) -> SimpleNamespace:
     observation = Observation(SERIES, REFERENCE, value, "snap")
     return SimpleNamespace(
@@ -25,6 +27,23 @@ def _data(value: float) -> SimpleNamespace:
         max_lag_days=31,
         inferred_lag_days=1,
     )
+
+
+def test_same_day_revision_moves_availability_forward(engine: Engine) -> None:
+    later = FIRST_COLLECTED.replace(hour=15)
+    with engine.begin() as conn:
+        initial = upsert_time_series(conn, _data(150.0).observations, FIRST_COLLECTED)
+        upsert_availability(
+            conn, _availability_rows(_data(150.0), initial, FIRST_COLLECTED), FIRST_COLLECTED
+        )
+    with engine.begin() as conn:
+        revised = upsert_time_series(conn, _data(151.5).observations, later)
+        assert revised.new_vintages == 0
+        upsert_availability(conn, _availability_rows(_data(151.5), revised, later), later)
+    assert get_series_as_of(engine, SERIES, FIRST_COLLECTED.replace(hour=12)) == []
+    after = get_series_as_of(engine, SERIES, later)
+    assert [row["value"] for row in after] == [151.5]
+
 
 def test_revision_uses_first_seen_not_original_release(engine: Engine) -> None:
     with engine.begin() as conn:

@@ -1,4 +1,5 @@
 """Template runtime settings. Rename SCHEMA_NAME when cloning the template."""
+
 from __future__ import annotations
 
 import os
@@ -13,7 +14,7 @@ if _ENV_FILE.exists():
             continue
         key, _, value = line.partition("=")
         key, value = key.strip(), value.strip()
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in ('\"', "'"):
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
             value = value[1:-1]
         if value and key not in os.environ:
             os.environ[key] = value
@@ -45,11 +46,13 @@ DBX_HTTP_PATH = os.getenv("DBX_HTTP_PATH", "")
 AKV_VAULT_URL = os.getenv("AKV_VAULT_URL", "")
 AKV_SECRET_NAME = os.getenv("AKV_SECRET_NAME", "databricks-token")
 
+
 def missing_environment(prod: bool = PROD) -> list[str]:
     if not prod:
         return [] if DATABASE_URL else ["COLLECTOR_DB_URL"]
     required = {"DBX_SERVER_HOSTNAME": DBX_SERVER_HOSTNAME, "DBX_HTTP_PATH": DBX_HTTP_PATH}
     return sorted(name for name, value in required.items() if not value)
+
 
 def unresolved_credentials(prod: bool = PROD) -> list[str]:
     if prod and not os.getenv("DATABRICKS_TOKEN") and not AKV_VAULT_URL:

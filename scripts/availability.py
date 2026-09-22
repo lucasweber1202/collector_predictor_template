@@ -12,7 +12,7 @@ weakest evidence:
 
 ``official_timestamp``
     The source stamped a machine-readable publication timestamp that this
-    observation can be attributed to. Page-history dates alone do not qualify.
+    observation can be attributed to. GOV.UK change-history entries are this.
 ``official_date``
     The source published a release date, but only to day precision.
 ``archived_release``
@@ -127,18 +127,49 @@ def _batch_parameters(rows: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 _EXISTING_SQL = text(
-    f"SELECT series_id, reference_date, vintage_date FROM {_TABLE} WHERE series_id IN :series_ids"
+    f"SELECT series_id, reference_date, vintage_date, available_at "
+    f"FROM {_TABLE} WHERE series_id IN :series_ids"
 ).bindparams(bindparam("series_ids", expanding=True))
+
+
+def _update_same_day_availability(conn: Connection, rows: list[dict[str, Any]]) -> None:
+    """Move the availability instant forward when a DATE vintage is revised."""
+    columns = _COLUMNS[3:]
+    batch_size = 100
+    for start in range(0, len(rows), batch_size):
+        batch = rows[start : start + batch_size]
+        predicates = [
+            f"(series_id = :series_id_{i} AND reference_date = :reference_date_{i} "
+            f"AND vintage_date = :vintage_date_{i})"
+            for i in range(len(batch))
+        ]
+        assignments = [
+            f"{column} = CASE "
+            + " ".join(
+                f"WHEN {predicate} THEN :{column}_{i}" for i, predicate in enumerate(predicates)
+            )
+            + f" ELSE {column} END"
+            for column in columns
+        ]
+        conn.execute(
+            text(f"UPDATE {_TABLE} SET {', '.join(assignments)} WHERE {' OR '.join(predicates)}"),
+            _batch_parameters(batch),
+        )
+        logger.info(
+            "Updated availability batch %d/%d",
+            start // batch_size + 1,
+            (len(rows) + batch_size - 1) // batch_size,
+        )
 
 
 def upsert_availability(
     conn: Connection, rows: list[dict[str, Any]], collected_at: datetime
 ) -> int:
-    """Insert availability rows for vintages that do not have one yet.
+    """Insert new vintages and advance a revised same-day vintage's availability.
 
-    An availability row is immutable once written. Rewriting it would rewrite
-    history: the whole point of the table is that it records what was knowable,
-    and a later run knowing more must not revise that downwards.
+    A DATE vintage cannot preserve its earlier intraday value. Moving its
+    availability forward prevents that new value from leaking into earlier
+    intraday as-of queries.
     """
     if not rows:
         return 0
@@ -146,24 +177,31 @@ def upsert_availability(
         if row["availability_basis"] not in AVAILABILITY_BASES:
             raise ValueError(f"Unknown availability_basis {row['availability_basis']!r}")
     series_ids = sorted({str(row["series_id"]) for row in rows})
-    existing: set[tuple[str, date, date]] = set()
+    existing: dict[tuple[str, date, date], datetime] = {}
     for start in range(0, len(series_ids), 50):
         for found in conn.execute(
             _EXISTING_SQL, {"series_ids": series_ids[start : start + 50]}
         ).mappings():
-            existing.add(
+            existing[
                 (
                     str(found["series_id"]),
                     _as_date(found["reference_date"]),
                     _as_date(found["vintage_date"]),
                 )
-            )
+            ] = _as_datetime(found["available_at"])
     pending = [
         {**row, "collected_at": collected_at}
         for row in rows
         if (row["series_id"], row["reference_date"], row["vintage_date"]) not in existing
     ]
-    if not pending:
+    updates = [
+        {**row, "collected_at": collected_at}
+        for row in rows
+        if (key := (row["series_id"], row["reference_date"], row["vintage_date"])) in existing
+        and row["availability_basis"] == FIRST_SEEN
+        and _as_datetime(row["available_at"]) > existing[key]
+    ]
+    if not pending and not updates:
         logger.info("Availability: all %d vintages already recorded", len(rows))
         return 0
     logger.info("Availability: writing %d rows in batches of %d", len(pending), BATCH_SIZE)
@@ -175,7 +213,8 @@ def upsert_availability(
             min(start + BATCH_SIZE, len(pending)),
             len(pending),
         )
-    return len(pending)
+    _update_same_day_availability(conn, updates)
+    return len(pending) + len(updates)
 
 
 def _as_date(value: object) -> date:

@@ -57,7 +57,9 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def _availability_rows(data: Any, result: WriteResult, collected_at: datetime) -> list[dict[str, Any]]:
+def _availability_rows(
+    data: Any, result: WriteResult, collected_at: datetime
+) -> list[dict[str, Any]]:
     """Build immutable PIT rows for the vintages written in this run.
 
     A later revision of an already stored reference period must never reuse the

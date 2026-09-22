@@ -1,4 +1,5 @@
 """Implement the source-specific extractor here."""
+
 from __future__ import annotations
 
 from typing import Any
