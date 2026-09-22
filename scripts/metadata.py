@@ -18,7 +18,7 @@ FREQUENCIES = frozenset({"daily", "weekly", "biweekly", "monthly", "quarterly", 
 UNITS = frozenset({"index", "percent", "ratio", "persons", "currency", "count", "tons", "hectares", "cubic_meters", "megawatt_hours", "other"})
 ECO_GROUPS = frozenset({"gdp", "activity", "industrial_production", "production", "retail_sales", "vehicles", "tourism", "mining", "savings", "leading_indicators", "consumer_prices", "producer_prices", "inflation", "inflation_expectations", "labor", "employment", "unemployment", "wages", "trade", "balance_of_payments", "exchange_rates", "external_accounts", "central_bank", "monetary_aggregates", "interest_rates", "financial_markets", "financial_intermediaries", "government_securities", "currency_in_circulation", "payment_systems", "petroleum_fund", "public_finance", "surveys", "consumer_confidence", "business_confidence", "other"})
 
-_COMPARABLE_COLUMNS = ("source_id", "name", "description", "country", "frequency", "unit", "first_observation", "last_observation", "observation_count", "eco_group", "source_url", "last_publish_date")
+_COMPARABLE_COLUMNS = ("name", "description", "country", "frequency", "unit", "first_observation", "last_observation", "observation_count", "eco_group", "source_url", "last_publish_date")
 _COLUMNS = ("series_id", *_COMPARABLE_COLUMNS, "collected_at")
 _UPDATE_COLUMNS = tuple(column for column in _COLUMNS if column != "series_id")
 _MERGE_DIALECTS = frozenset({"databricks", "postgresql"})
@@ -50,7 +50,7 @@ def _as_date(value: object) -> date | None:
 
 def validate_catalog(catalog: dict[str, dict[str, Any]]) -> None:
     for series_id, fields in sorted(catalog.items()):
-        for key in ("source_id", "name", "source_url"):
+        for key in ("name", "source_url"):
             if not str(fields.get(key, "")).strip():
                 raise ValueError(f"{series_id} metadata is missing required field {key!r}")
         if fields["frequency"] not in FREQUENCIES:
@@ -72,7 +72,7 @@ def upsert_metadata(conn: Connection, catalog: dict[str, dict[str, Any]], collec
         if history is None:
             logger.warning("%s has no stored observations; skipping metadata", series_id)
             continue
-        desired.append({"series_id": series_id, "source_id": fields["source_id"], "name": fields["name"], "description": fields.get("description"), "country": COUNTRY_CURRENCY, "frequency": fields["frequency"], "unit": fields["unit"], "first_observation": _as_date(history["first_observation"]), "last_observation": _as_date(history["last_observation"]), "observation_count": int(history["observation_count"]), "eco_group": fields["eco_group"], "source_url": fields["source_url"], "last_publish_date": fields.get("last_publish_date"), "collected_at": collected_at})
+        desired.append({"series_id": series_id, "name": fields["name"], "description": fields.get("description"), "country": COUNTRY_CURRENCY, "frequency": fields["frequency"], "unit": fields["unit"], "first_observation": _as_date(history["first_observation"]), "last_observation": _as_date(history["last_observation"]), "observation_count": int(history["observation_count"]), "eco_group": fields["eco_group"], "source_url": fields["source_url"], "last_publish_date": fields.get("last_publish_date"), "collected_at": collected_at})
     inserts = [row for row in desired if row["series_id"] not in existing]
     updates: list[dict[str, Any]] = []
     for row in desired:
