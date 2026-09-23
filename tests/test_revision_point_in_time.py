@@ -1,4 +1,5 @@
 """Regression test for the historical-revision look-ahead bug."""
+
 from __future__ import annotations
 
 from datetime import UTC, date, datetime
@@ -16,6 +17,7 @@ FIRST_COLLECTED = datetime(2026, 1, 6, 9, 0, tzinfo=UTC)
 REVISION_COLLECTED = datetime(2026, 3, 10, 15, 0, tzinfo=UTC)
 ORIGINAL_RELEASE = datetime(2026, 1, 6, 8, 30, tzinfo=UTC)
 
+
 def _data(value: float) -> SimpleNamespace:
     observation = Observation(SERIES, REFERENCE, value, "snap")
     return SimpleNamespace(
@@ -25,6 +27,7 @@ def _data(value: float) -> SimpleNamespace:
         max_lag_days=31,
         inferred_lag_days=1,
     )
+
 
 def test_revision_uses_first_seen_not_original_release(engine: Engine) -> None:
     with engine.begin() as conn:

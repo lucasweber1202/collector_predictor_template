@@ -1,4 +1,5 @@
 """Build the local PostgreSQL or production Databricks SQLAlchemy engine."""
+
 from __future__ import annotations
 
 import logging
@@ -10,9 +11,11 @@ from scripts.config import CATALOG_NAME, DATABASE_URL, PROD, SCHEMA_NAME
 
 logger = logging.getLogger(__name__)
 
+
 def build_engine() -> Engine:
     if PROD:
         from scripts.databricks_engine import get_orm_engine
+
         return get_orm_engine(CATALOG_NAME, SCHEMA_NAME)
     if not DATABASE_URL:
         raise RuntimeError("COLLECTOR_DB_URL is required when PROD is false")
