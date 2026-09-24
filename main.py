@@ -170,6 +170,20 @@ def collect_source(engine: Engine, start_date: date) -> None:
     kept_observations, kept_catalog, _usability = filter_usable_series(
         data.observations, data.catalog, collected_at.date()
     )
+    # A run that keeps no series persists nothing, so returning normally
+    # here would exit 0 and read as a successful collection. That is how a
+    # source whose published window is shorter than min_history_years stays
+    # silently empty indefinitely. Fail loudly and name the verdict counts,
+    # so an empty load is a decision rather than a discovery months later.
+    if data.observations and not _usability.kept:
+        raise ValueError(
+            "Usable-series filter dropped every series "
+            f"(stale={len(_usability.stale)} "
+            f"short_history={len(_usability.short_history)} "
+            f"empty={len(_usability.empty)}). Nothing would be persisted: either "
+            "the source stopped publishing usable history, or the configured "
+            "thresholds do not match this source's published window."
+        )
     data = replace(data, observations=kept_observations, catalog=kept_catalog)
     if engine.dialect.name not in TRANSACTIONAL_DIALECTS:
         logger.warning(
